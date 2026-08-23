@@ -31,6 +31,7 @@ bench is a CLI-native alternative to Postman. Import a Swagger/OpenAPI spec, and
 - **HTTP Client:** net/http
 - **Storage:** JSON files per project (simple) or SQLite (if needed)
 
+
 ## Commands (Planned)
 
 ```

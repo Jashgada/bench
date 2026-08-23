@@ -1,0 +1,104 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Pets API"
+    },
+    "servers": [
+      {
+        "url": "https://example.com"
+      }
+    ],
+    "paths": {
+      "/pets": {
+        "get": {
+          "operationId": "listPets",
+          "summary": "List pets",
+          "parameters": [
+            {
+              "name": "limit",
+              "in": "query",
+              "required": false
+            },
+            {
+              "name": "tag",
+              "in": "query",
+              "required": false
+            }
+          ]
+        },
+        "post": {
+          "operationId": "createPet",
+          "summary": "Create a pet",
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["name"],
+                  "properties": {
+                    "name": {"type": "string"},
+                    "tag": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/pets/{id}": {
+        "get": {
+          "operationId": "getPet",
+          "summary": "Get a pet",
+          "parameters": [
+            {
+              "name": "id",
+              "in": "path",
+              "required": true
+            },
+            {
+              "name": "verbose",
+              "in": "query",
+              "required": false
+            }
+          ]
+        },
+        "put": {
+          "operationId": "updatePet",
+          "summary": "Update a pet",
+          "parameters": [
+            {
+              "name": "id",
+              "in": "path",
+              "required": true
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": "string"},
+                    "tag": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "delete": {
+          "operationId": "deletePet",
+          "summary": "Delete a pet",
+          "parameters": [
+            {
+              "name": "id",
+              "in": "path",
+              "required": true
+            }
+          ]
+        }
+      }
+    }
+  }

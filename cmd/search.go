@@ -1,20 +1,21 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
+var searchProjectName string
+
 var searchCmd = &cobra.Command{
 	Use:   "search",
-	Short: "Open fuzzy finder to search and select an API",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Opening search...")
-		// TODO: Launch bubbletea fuzzy finder
+	Short: "Open the terminal API browser",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runTUI(searchProjectName)
 	},
 }
 
 func init() {
+	searchCmd.Flags().StringVarP(&searchProjectName, "project", "p", "", "Project name to browse")
 	rootCmd.AddCommand(searchCmd)
 }
