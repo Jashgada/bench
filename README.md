@@ -20,6 +20,23 @@ go build -o bench .
 
 ## Quick Start
 
+Start the included local Petstore mock API in a separate terminal:
+
+```bash
+bench serve
+```
+
+Then import the matching fixture against it:
+
+```bash
+bench init cmd/testdata/pets.json --name pets --base-url http://localhost:8080
+bench list
+bench run listPets
+```
+
+The mock API starts with two pets and supports `GET`/`POST /pets` plus
+`GET`/`PUT`/`DELETE /pets/{id}`.
+
 Import an OpenAPI 3 JSON document. A project name is required:
 
 ```bash
@@ -40,8 +57,9 @@ bench search
 ```
 
 The browser is designed around a K9s-like keyboard workflow: use `j`/`k` or
-the arrow keys to move, `enter` to inspect an operation, `/` to filter, `esc`
-to go back, and `q` to quit.
+the arrow keys to move, `enter` to inspect an operation, `r` to run it, `/` to
+filter, `esc` to go back, and `q` to quit. Running an operation suspends the
+browser and reuses the normal prompts for parameters and request JSON.
 
 Run an operation by operation ID. Required path, query, and header parameters
 are prompted interactively:

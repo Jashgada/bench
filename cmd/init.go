@@ -22,13 +22,14 @@ type Project struct {
 }
 
 type API struct {
-	Name              string          `json:"name"`
-	Method            string          `json:"method"`
-	Path              string          `json:"path"`
-	PathParams        []Parameter     `json:"path_params,omitempty"`
-	QueryParams       []Parameter     `json:"query_params,omitempty"`
-	Headers           []Parameter     `json:"headers,omitempty"`
-	RequestBodySchema json.RawMessage `json:"request_body_schema,omitempty"`
+	Name                string          `json:"name"`
+	Method              string          `json:"method"`
+	Path                string          `json:"path"`
+	PathParams          []Parameter     `json:"path_params,omitempty"`
+	QueryParams         []Parameter     `json:"query_params,omitempty"`
+	Headers             []Parameter     `json:"headers,omitempty"`
+	RequestBodySchema   json.RawMessage `json:"request_body_schema,omitempty"`
+	RequestBodyRequired bool            `json:"request_body_required,omitempty"`
 }
 
 type Parameter struct {
@@ -62,7 +63,8 @@ type openAPIParam struct {
 }
 
 type requestBody struct {
-	Content map[string]struct {
+	Required bool `json:"required"`
+	Content  map[string]struct {
 		Schema json.RawMessage `json:"schema"`
 	} `json:"content"`
 }
@@ -171,6 +173,7 @@ func parseProject(data []byte, name, overrideBaseURL, source string) (Project, e
 				}
 			}
 			if op.RequestBody != nil {
+				api.RequestBodyRequired = op.RequestBody.Required
 				for _, mediaType := range op.RequestBody.Content {
 					api.RequestBodySchema = mediaType.Schema
 					break

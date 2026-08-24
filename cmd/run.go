@@ -49,85 +49,126 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-func executeAPI(cmd *cobra.Command, project Project, api API) error {
-	reader := bufio.NewReader(cmd.InOrStdin())
+type ResponseResult struct {
+	Status  string
+	Timing  time.Duration
+	Headers http.Header
+	Body    []byte
+	Error   error
+}
+
+func executeRequest(project Project, api API, params map[string]string, body []byte) ResponseResult {
 	path := api.Path
-	for _, parameter := range api.PathParams {
-		if parameter.Required {
-			value, err := promptValue(cmd, reader, parameter.Name)
-			if err != nil {
-				return err
-			}
-			path = strings.ReplaceAll(path, "{"+parameter.Name+"}", url.PathEscape(value))
+	for _, p := range api.PathParams {
+		if val, ok := params[p.Name]; ok && val != "" {
+			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(val))
 		}
 	}
 	requestURL := strings.TrimRight(project.BaseURL, "/") + "/" + strings.TrimLeft(path, "/")
 	parsed, err := url.Parse(requestURL)
 	if err != nil {
-		return fmt.Errorf("build request URL: %w", err)
+		return ResponseResult{Error: fmt.Errorf("build request URL: %w", err)}
 	}
 	query := parsed.Query()
-	for _, parameter := range api.QueryParams {
-		if parameter.Required {
-			value, err := promptValue(cmd, reader, parameter.Name)
-			if err != nil {
-				return err
-			}
-			query.Set(parameter.Name, value)
+	for _, p := range api.QueryParams {
+		if val, ok := params[p.Name]; ok && val != "" {
+			query.Set(p.Name, val)
 		}
 	}
 	parsed.RawQuery = query.Encode()
-	var body io.Reader
-	bodyData, err := readRequestBody(cmd, reader)
+
+	var bodyReader io.Reader
+	if len(body) > 0 {
+		bodyReader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequest(api.Method, parsed.String(), bodyReader)
 	if err != nil {
-		return err
+		return ResponseResult{Error: fmt.Errorf("create request: %w", err)}
 	}
-	if len(bodyData) > 0 {
-		body = bytes.NewReader(bodyData)
-	}
-	request, err := http.NewRequest(api.Method, parsed.String(), body)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	for _, header := range api.Headers {
-		if header.Required {
-			value, err := promptValue(cmd, reader, header.Name)
-			if err != nil {
-				return err
-			}
-			request.Header.Set(header.Name, value)
+	for _, h := range api.Headers {
+		if val, ok := params[h.Name]; ok && val != "" {
+			request.Header.Set(h.Name, val)
 		}
 	}
-	if len(bodyData) > 0 && request.Header.Get("Content-Type") == "" {
+	if len(body) > 0 && request.Header.Get("Content-Type") == "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
+
 	start := time.Now()
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("execute request: %w", err)
+		return ResponseResult{Error: fmt.Errorf("execute request: %w", err)}
 	}
 	defer response.Body.Close()
 	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return ResponseResult{Error: fmt.Errorf("read response: %w", err)}
 	}
+	return ResponseResult{
+		Status:  response.Status,
+		Timing:  time.Since(start).Round(time.Millisecond),
+		Headers: response.Header,
+		Body:    responseData,
+	}
+}
+
+func executeAPI(cmd *cobra.Command, project Project, api API) error {
+	reader := bufio.NewReader(cmd.InOrStdin())
+	params := map[string]string{}
+	for _, p := range api.PathParams {
+		if p.Required {
+			val, err := promptValue(cmd, reader, p.Name)
+			if err != nil {
+				return err
+			}
+			params[p.Name] = val
+		}
+	}
+	for _, p := range api.QueryParams {
+		if p.Required {
+			val, err := promptValue(cmd, reader, p.Name)
+			if err != nil {
+				return err
+			}
+			params[p.Name] = val
+		}
+	}
+	for _, h := range api.Headers {
+		if h.Required {
+			val, err := promptValue(cmd, reader, h.Name)
+			if err != nil {
+				return err
+			}
+			params[h.Name] = val
+		}
+	}
+	bodyData, err := readRequestBody(cmd, reader, len(api.RequestBodySchema) > 0, api.RequestBodyRequired)
+	if err != nil {
+		return err
+	}
+
+	result := executeRequest(project, api, params, bodyData)
+	if result.Error != nil {
+		return result.Error
+	}
+
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Status: %s\nTiming: %s\nHeaders:\n", response.Status, time.Since(start).Round(time.Millisecond))
-	for key, values := range response.Header {
+	fmt.Fprintf(out, "Status: %s\nTiming: %s\nHeaders:\n", result.Status, result.Timing)
+	for key, values := range result.Headers {
 		for _, value := range values {
 			fmt.Fprintf(out, "%s: %s\n", key, value)
 		}
 	}
 	fmt.Fprintln(out, "\nResponse:")
-	if json.Valid(responseData) {
+	if json.Valid(result.Body) {
 		var pretty bytes.Buffer
-		if json.Indent(&pretty, responseData, "", "  ") == nil {
+		if json.Indent(&pretty, result.Body, "", "  ") == nil {
 			fmt.Fprintln(out, pretty.String())
 			return nil
 		}
 	}
-	_, err = out.Write(responseData)
-	if len(responseData) > 0 && responseData[len(responseData)-1] != '\n' {
+	_, err = out.Write(result.Body)
+	if len(result.Body) > 0 && result.Body[len(result.Body)-1] != '\n' {
 		_, err = fmt.Fprintln(out)
 	}
 	return err
@@ -146,7 +187,7 @@ func promptValue(cmd *cobra.Command, reader *bufio.Reader, name string) (string,
 	return value, nil
 }
 
-func readRequestBody(cmd *cobra.Command, reader *bufio.Reader) ([]byte, error) {
+func readRequestBody(cmd *cobra.Command, reader *bufio.Reader, hasSchema, required bool) ([]byte, error) {
 	if runBody != "" && runBodyFile != "" {
 		return nil, fmt.Errorf("use only one of --body or --body-file")
 	}
@@ -164,6 +205,18 @@ func readRequestBody(cmd *cobra.Command, reader *bufio.Reader) ([]byte, error) {
 		if info, err := file.Stat(); err == nil && info.Mode()&os.ModeCharDevice == 0 {
 			return io.ReadAll(reader)
 		}
+	}
+	if hasSchema {
+		fmt.Fprint(cmd.OutOrStdout(), "Body JSON (optional): ")
+		value, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" && required {
+			return nil, fmt.Errorf("request body is required")
+		}
+		return []byte(value), nil
 	}
 	return nil, nil
 }
