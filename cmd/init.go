@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 )
 
 // Project is the small, normalized representation used by bench after import.
@@ -25,6 +27,7 @@ type API struct {
 	Name                string          `json:"name"`
 	Method              string          `json:"method"`
 	Path                string          `json:"path"`
+	Tags                []string        `json:"tags,omitempty"`
 	PathParams          []Parameter     `json:"path_params,omitempty"`
 	QueryParams         []Parameter     `json:"query_params,omitempty"`
 	Headers             []Parameter     `json:"headers,omitempty"`
@@ -52,6 +55,7 @@ type openAPISpec struct {
 type operation struct {
 	OperationID string         `json:"operationId"`
 	Summary     string         `json:"summary"`
+	Tags        []string       `json:"tags"`
 	Parameters  []openAPIParam `json:"parameters"`
 	RequestBody *requestBody   `json:"requestBody"`
 }
@@ -73,8 +77,8 @@ var projectName string
 var baseURL string
 
 var initCmd = &cobra.Command{
-	Use:   "init <swagger.json>",
-	Short: "Create a new project from a Swagger/OpenAPI spec",
+	Use:   "init <openapi.json|openapi.yaml>",
+	Short: "Create a new project from an OpenAPI spec",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return initializeProject(args[0])
@@ -132,6 +136,13 @@ func initializeProject(specPath string) error {
 }
 
 func parseProject(data []byte, name, overrideBaseURL, source string) (Project, error) {
+	if isYAMLSource(source, data) {
+		var err error
+		data, err = yaml.YAMLToJSON(data)
+		if err != nil {
+			return Project{}, fmt.Errorf("parse OpenAPI YAML: %w", err)
+		}
+	}
 	var spec openAPISpec
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return Project{}, fmt.Errorf("parse OpenAPI JSON: %w", err)
@@ -160,7 +171,7 @@ func parseProject(data []byte, name, overrideBaseURL, source string) (Project, e
 			if apiName == "" {
 				apiName = strings.ToUpper(method) + " " + path
 			}
-			api := API{Name: apiName, Method: strings.ToUpper(method), Path: path}
+			api := API{Name: apiName, Method: strings.ToUpper(method), Path: path, Tags: op.Tags}
 			for _, param := range op.Parameters {
 				normalized := Parameter{Name: param.Name, Required: param.Required}
 				switch param.In {
@@ -183,6 +194,19 @@ func parseProject(data []byte, name, overrideBaseURL, source string) (Project, e
 		}
 	}
 	return project, nil
+}
+
+func isYAMLSource(source string, data []byte) bool {
+	path := source
+	if parsed, err := url.Parse(source); err == nil {
+		path = parsed.Path
+	}
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".yaml" || extension == ".yml" {
+		return true
+	}
+	trimmed := strings.TrimSpace(string(data))
+	return len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '['
 }
 
 func readSpecSource(source string) ([]byte, error) {

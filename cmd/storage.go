@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -29,6 +30,28 @@ func loadProject(name string) (Project, error) {
 		return Project{}, fmt.Errorf("parse project: %w", err)
 	}
 	return project, nil
+}
+
+func projectNames() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("find home directory: %w", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(home, ".bench", "projects"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read projects: %w", err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func setCurrentProject(name string) error {

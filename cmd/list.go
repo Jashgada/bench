@@ -21,7 +21,7 @@ var listCmd = &cobra.Command{
 		apis := append([]API(nil), project.APIs...)
 		sort.Slice(apis, func(i, j int) bool { return apis[i].Name < apis[j].Name })
 		for _, api := range apis {
-			if listFilter != "" && !strings.Contains(strings.ToLower(api.Name+" "+api.Method+" "+api.Path), strings.ToLower(listFilter)) {
+			if listFilter != "" && !strings.Contains(strings.ToLower(api.Name+" "+api.Method+" "+api.Path+" "+strings.Join(api.Tags, " ")), strings.ToLower(listFilter)) {
 				continue
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", api.Method, api.Path, api.Name)

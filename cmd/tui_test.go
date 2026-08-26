@@ -109,3 +109,47 @@ func TestTUICommandBarCommand(t *testing.T) {
 		t.Fatal("command did not navigate to detail")
 	}
 }
+
+func TestTUIProjectsCommand(t *testing.T) {
+	model := tuiModel{project: Project{Name: "pets"}, items: []API{{Name: "listPets"}}}
+	model.filtered = append([]API(nil), model.items...)
+	updated, _ := model.executeCommand("projects")
+	model = updated.(tuiModel)
+	if model.state != stateProjects {
+		t.Fatal("projects command did not open project picker")
+	}
+}
+
+func TestTUIGroupCommand(t *testing.T) {
+	model := tuiModel{items: []API{
+		{Name: "listPets", Tags: []string{"pokemon"}},
+		{Name: "listItems", Tags: []string{"items"}},
+	}}
+	model.filtered = append([]API(nil), model.items...)
+	updated, _ := model.executeCommand("group pokemon")
+	model = updated.(tuiModel)
+	if model.tagFilter != "pokemon" || len(model.filtered) != 1 || model.filtered[0].Name != "listPets" {
+		t.Fatalf("unexpected group result: %#v", model)
+	}
+	updated, _ = model.executeCommand("group all")
+	model = updated.(tuiModel)
+	if model.tagFilter != "" || len(model.filtered) != 2 {
+		t.Fatalf("group all did not clear filter: %#v", model)
+	}
+}
+
+func TestTUIResponseScrolling(t *testing.T) {
+	model := tuiModel{
+		state:    stateDetail,
+		height:   12,
+		response: &ResponseResult{Body: []byte("1\n2\n3\n4\n5\n6\n7\n8")},
+	}
+	model.scrollResponse(4)
+	if model.responseScroll == 0 {
+		t.Fatal("response did not scroll")
+	}
+	model.scrollResponse(-100)
+	if model.responseScroll != 0 {
+		t.Fatalf("response scrolled before beginning: %d", model.responseScroll)
+	}
+}

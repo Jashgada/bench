@@ -18,6 +18,10 @@ binary from a checkout:
 go build -o bench .
 ```
 
+From a checkout, `make install` formats, tests, and installs the latest build
+to Go's bin directory. Other useful targets are `make check`, `make build`,
+`make run`, and `make serve`.
+
 ## Quick Start
 
 Start the included local Petstore mock API in a separate terminal:
@@ -53,13 +57,25 @@ bench list --filter pet
 Open the interactive terminal browser:
 
 ```bash
-bench search
+bench
 ```
 
 The browser is designed around a K9s-like keyboard workflow: use `j`/`k` or
 the arrow keys to move, `enter` to inspect an operation, `r` to run it, `/` to
 filter, `esc` to go back, and `q` to quit. Running an operation suspends the
 browser and reuses the normal prompts for parameters and request JSON.
+
+The command bar also supports project navigation:
+
+```text
+:projects       open the project picker
+:p              short alias for :projects
+:project pets   switch directly to the pets project
+:group pokemon   show only operations tagged pokemon
+:group all       clear the tag group filter
+:reload         reload the current project from local storage
+:update         fetch the current project source and reload it
+```
 
 Run an operation by operation ID. Required path, query, and header parameters
 are prompted interactively:
@@ -106,13 +122,13 @@ file path or HTTP(S) URL is stored so `bench update` can refresh it.
 
 Supported:
 
-- OpenAPI 3 JSON
+- OpenAPI 3 JSON and YAML
 - Operation IDs, methods, paths, parameters, request bodies, and server URLs
 - Local normalized JSON project storage
 - HTTP request execution with response headers and formatted JSON output
 
 Not yet supported:
 
-- Swagger 2, YAML, and automatic `$ref` resolution
+- Swagger 2 and automatic `$ref` resolution
 - Authentication, environments, and secrets
 - Full JSON Schema-driven prompting
