@@ -1,7 +1,7 @@
 GO := $(shell command -v go 2>/dev/null || printf /usr/local/go/bin/go)
 BIN := $(shell $(GO) env GOPATH)/bin/bench
 
-.PHONY: all fmt test build check install serve run
+.PHONY: all fmt test build check install run
 
 all: check build
 
@@ -19,9 +19,6 @@ check: fmt test
 install: check
 	$(GO) install .
 	@printf 'Installed bench at %s\n' '$(BIN)'
-
-serve:
-	$(GO) run . serve
 
 run:
 	$(GO) run .

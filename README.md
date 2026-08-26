@@ -1,7 +1,8 @@
 # bench
 
-`bench` turns an OpenAPI 3 JSON document into an executable local API collection.
-It is a request runner first, with a terminal browser for discovering operations.
+`bench` turns an OpenAPI 3 JSON or YAML document into an executable local API
+collection. It is a request runner first, with a K9s-style terminal browser for
+discovering and executing operations.
 
 ## Installation
 
@@ -19,39 +20,21 @@ go build -o bench .
 ```
 
 From a checkout, `make install` formats, tests, and installs the latest build
-to Go's bin directory. Other useful targets are `make check`, `make build`,
-`make run`, and `make serve`.
+to Go's bin directory. Other useful targets are `make check` (format + test)
+and `make build`.
 
 ## Quick Start
 
-Start the included local Petstore mock API in a separate terminal:
-
-```bash
-bench serve
-```
-
-Then import the matching fixture against it:
-
-```bash
-bench init cmd/testdata/pets.json --name pets --base-url http://localhost:8080
-bench list
-bench run listPets
-```
-
-The mock API starts with two pets and supports `GET`/`POST /pets` plus
-`GET`/`PUT`/`DELETE /pets/{id}`.
-
-Import an OpenAPI 3 JSON document. A project name is required:
+Import an OpenAPI 3 spec. A project name is required:
 
 ```bash
 bench init petstore.json --name pets
 ```
 
-List operations in the current project:
+Or straight from a URL:
 
 ```bash
-bench list
-bench list --filter pet
+bench init https://raw.githubusercontent.com/PokeAPI/pokeapi/master/openapi.yml --name pokemon
 ```
 
 Open the interactive terminal browser:
@@ -60,25 +43,68 @@ Open the interactive terminal browser:
 bench
 ```
 
-The browser is designed around a K9s-like keyboard workflow: use `j`/`k` or
-the arrow keys to move, `enter` to inspect an operation, `r` to run it, `/` to
-filter, `esc` to go back, and `q` to quit. Running an operation suspends the
-browser and reuses the normal prompts for parameters and request JSON.
+The browser follows a K9s-like keyboard workflow:
 
-The command bar also supports project navigation:
+- `j`/`k` or arrow keys move and scroll
+- `enter` inspects an operation
+- `r` runs it, filling parameters and request body inline
+- `/` filters operations, `?` shows all keybindings
+- `:` opens command mode, `q` quits
+
+The response appears in a split panel below the browser with status, timing,
+and pretty-printed JSON. The body is searchable (`/`), scrollable, and copyable
+(`c`), with a headers tab (`tab` to switch).
+
+## Command Bar
 
 ```text
-:projects       open the project picker
-:p              short alias for :projects
-:project pets   switch directly to the pets project
-:envs           open the environment picker
-:env dev        switch directly to the dev environment
-:curl ...       run an ad-hoc curl command without a saved operation
+:projects        open the project picker
+:p               short alias for :projects
+:project pets    switch directly to the pets project
+:envs            open the environment picker
+:env dev         switch directly to the dev environment
+:curl ...        run an ad-hoc curl command without a saved operation
 :group pokemon   show only operations tagged pokemon
 :group all       clear the tag group filter
-:reload         reload the current project from local storage
-:update         fetch the current project source and reload it
+:reload          reload the current project from local storage
+:update          fetch the current project source and reload it
+:q, :quit        quit bench
 ```
+
+## CLI Usage
+
+List operations in the current project:
+
+```bash
+bench list
+bench list --filter pet
+```
+
+Run an operation by operation ID. Required path, query, and header parameters
+are prompted interactively. Request bodies can be supplied inline, from a
+file, or through stdin:
+
+```bash
+bench run listPets
+bench run createPet --body '{"name":"Fido"}'
+bench run createPet --body-file request.json
+cat request.json | bench run createPet
+```
+
+Refresh a project from the source used during initialization:
+
+```bash
+bench update --project pets
+```
+
+Delete a project:
+
+```bash
+bench delete --project pets
+```
+
+Use `--project <name>` with `list` or `run` when working with a project other
+than the current one.
 
 ## Environments
 
@@ -114,7 +140,7 @@ Supported schemes: `http` bearer, `http` basic, and header-based `apiKey`.
 Headers you supply explicitly always win over injected credentials. OAuth
 flows are not supported.
 
-## Ad-hoc requests
+## Ad-hoc Requests
 
 The `:curl` command runs any curl-style command line through bench's engine,
 so the response lands in the same scrollable, searchable, copyable panel as
@@ -124,42 +150,18 @@ normal requests:
 :curl -X POST https://api.example.com/pets -H 'X-Tag: best friend' -d '{"name":"Fido"}'
 ```
 
-Run an operation by operation ID. Required path, query, and header parameters
-are prompted interactively:
-
-```bash
-bench run listPets
-```
-
-Request bodies can be supplied inline, from a file, or through stdin:
-
-```bash
-bench run createPet --body '{"name":"Fido"}'
-bench run createPet --body-file request.json
-cat request.json | bench run createPet
-```
-
-Refresh a project from the source used during initialization:
-
-```bash
-bench update --project pets
-```
-
-Delete a project:
-
-```bash
-bench delete --project pets
-```
-
-Use `--project <name>` with `list` or `run` when working with a project other
-than the current one.
-
 ## Storage
 
 Projects are stored locally at:
 
 ```text
 ~/.bench/projects/<name>/project.json
+```
+
+Environments live alongside them:
+
+```text
+~/.bench/projects/<name>/environments/<env>.json
 ```
 
 The most recently initialized project is used by default. The original local
@@ -170,12 +172,13 @@ file path or HTTP(S) URL is stored so `bench update` can refresh it.
 Supported:
 
 - OpenAPI 3 JSON and YAML
-- Operation IDs, methods, paths, parameters, request bodies, and server URLs
-- Local normalized JSON project storage
+- Operation IDs, methods, paths, parameters, tags, request bodies, and server URLs
+- Security scheme parsing with automatic credential injection
+- Local normalized JSON project storage and environments
 - HTTP request execution with response headers and formatted JSON output
 
 Not yet supported:
 
 - Swagger 2 and automatic `$ref` resolution
-- Authentication, environments, and secrets
+- OAuth flows
 - Full JSON Schema-driven prompting
