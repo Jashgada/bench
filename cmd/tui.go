@@ -518,6 +518,8 @@ func (m tuiModel) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	case "help", "h":
 		m.helpOverlay = true
 		return m, nil
+	case "butts":
+		return "poopy"
 	default:
 		for _, api := range m.items {
 			if api.Name == parts[0] {
