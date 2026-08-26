@@ -17,10 +17,11 @@ import (
 // Project is the small, normalized representation used by bench after import.
 // Commands do not need to know how the original OpenAPI document was shaped.
 type Project struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	Source  string `json:"source"`
-	APIs    []API  `json:"apis"`
+	Name            string                    `json:"name"`
+	BaseURL         string                    `json:"base_url"`
+	Source          string                    `json:"source"`
+	SecuritySchemes map[string]securityScheme `json:"security_schemes,omitempty"`
+	APIs            []API                     `json:"apis"`
 }
 
 type API struct {
@@ -33,6 +34,7 @@ type API struct {
 	Headers             []Parameter     `json:"headers,omitempty"`
 	RequestBodySchema   json.RawMessage `json:"request_body_schema,omitempty"`
 	RequestBodyRequired bool            `json:"request_body_required,omitempty"`
+	Security            []string        `json:"security,omitempty"`
 }
 
 type Parameter struct {
@@ -49,15 +51,19 @@ type openAPISpec struct {
 	Servers []struct {
 		URL string `json:"url"`
 	} `json:"servers"`
-	Paths map[string]map[string]json.RawMessage `json:"paths"`
+	Paths      map[string]map[string]json.RawMessage `json:"paths"`
+	Components struct {
+		SecuritySchemes map[string]securityScheme `json:"securitySchemes"`
+	} `json:"components"`
 }
 
 type operation struct {
-	OperationID string         `json:"operationId"`
-	Summary     string         `json:"summary"`
-	Tags        []string       `json:"tags"`
-	Parameters  []openAPIParam `json:"parameters"`
-	RequestBody *requestBody   `json:"requestBody"`
+	OperationID string                `json:"operationId"`
+	Summary     string                `json:"summary"`
+	Tags        []string              `json:"tags"`
+	Parameters  []openAPIParam        `json:"parameters"`
+	RequestBody *requestBody          `json:"requestBody"`
+	Security    []map[string][]string `json:"security"`
 }
 
 type openAPIParam struct {
@@ -154,7 +160,7 @@ func parseProject(data []byte, name, overrideBaseURL, source string) (Project, e
 	if serverURL == "" && len(spec.Servers) > 0 {
 		serverURL = spec.Servers[0].URL
 	}
-	project := Project{Name: name, BaseURL: serverURL, Source: source}
+	project := Project{Name: name, BaseURL: serverURL, Source: source, SecuritySchemes: spec.Components.SecuritySchemes}
 	for path, pathItem := range spec.Paths {
 		for method, rawOperation := range pathItem {
 			if !isHTTPMethod(method) {
@@ -172,6 +178,11 @@ func parseProject(data []byte, name, overrideBaseURL, source string) (Project, e
 				apiName = strings.ToUpper(method) + " " + path
 			}
 			api := API{Name: apiName, Method: strings.ToUpper(method), Path: path, Tags: op.Tags}
+			for _, requirement := range op.Security {
+				for schemeName := range requirement {
+					api.Security = append(api.Security, schemeName)
+				}
+			}
 			for _, param := range op.Parameters {
 				normalized := Parameter{Name: param.Name, Required: param.Required}
 				switch param.In {

@@ -19,6 +19,7 @@ const (
 	stateDetail
 	stateForm
 	stateProjects
+	stateEnvs
 )
 
 type cmdMode int
@@ -62,6 +63,9 @@ type tuiModel struct {
 	project       Project
 	projects      []string
 	projectCursor int
+	envs          []string
+	envCursor     int
+	envName       string
 	items         []API
 	filtered      []API
 	cursor        int
@@ -280,6 +284,8 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case stateProjects:
 			m.state = stateList
+		case stateEnvs:
+			m.state = stateList
 		case stateForm:
 			m.state = stateDetail
 		case stateDetail:
@@ -303,6 +309,10 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case stateProjects:
 			if m.projectCursor > 0 {
 				m.projectCursor--
+			}
+		case stateEnvs:
+			if m.envCursor > 0 {
+				m.envCursor--
 			}
 		case stateList:
 			if m.cursor > 0 {
@@ -328,6 +338,10 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.projectCursor < len(m.projects)-1 {
 				m.projectCursor++
 			}
+		case stateEnvs:
+			if m.envCursor < len(m.envs)-1 {
+				m.envCursor++
+			}
 		case stateList:
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
@@ -347,6 +361,10 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case stateProjects:
 			if len(m.projects) > 0 {
 				m.switchProject(m.projects[m.projectCursor])
+			}
+		case stateEnvs:
+			if len(m.envs) > 0 {
+				m.switchEnvironment(m.envs[m.envCursor])
 			}
 		case stateList:
 			if len(m.filtered) > 0 {
@@ -485,6 +503,18 @@ func (m tuiModel) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		}
 		m.switchProject(parts[1])
 		return m, nil
+	case "envs":
+		m.openEnvs()
+		return m, nil
+	case "env":
+		if len(parts) != 2 {
+			m.copyStatus = "Usage: :env <name> (or :envs to browse)"
+			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearCopyMsg{} })
+		}
+		m.switchEnvironment(parts[1])
+		return m, nil
+	case "curl":
+		return m.runCurlCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "curl")))
 	case "help", "h":
 		m.helpOverlay = true
 		return m, nil
@@ -563,6 +593,63 @@ func (m *tuiModel) switchProject(name string) {
 	_ = setCurrentProject(name)
 }
 
+func (m *tuiModel) openEnvs() {
+	envs, err := listEnvironments(m.project.Name)
+	if err != nil {
+		m.copyStatus = err.Error()
+		return
+	}
+	m.envs = envs
+	m.envCursor = 0
+	for i, name := range envs {
+		if name == m.envName {
+			m.envCursor = i
+			break
+		}
+	}
+	m.state = stateEnvs
+}
+
+func (m *tuiModel) switchEnvironment(name string) {
+	if _, err := loadEnvironment(m.project.Name, name); err != nil {
+		m.copyStatus = fmt.Sprintf("environment %q not found", name)
+		return
+	}
+	if err := setCurrentEnvironment(m.project.Name, name); err != nil {
+		m.copyStatus = err.Error()
+		return
+	}
+	m.envName = name
+	m.state = stateList
+	m.copyStatus = "Switched to environment " + name
+}
+
+func (m tuiModel) runCurlCommand(input string) (tea.Model, tea.Cmd) {
+	if input == "" {
+		m.copyStatus = "Usage: :curl <curl command>"
+		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearCopyMsg{} })
+	}
+	request, err := parseCurl(input)
+	if err != nil {
+		m.copyStatus = "Curl parse failed: " + err.Error()
+		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearCopyMsg{} })
+	}
+	api := API{Name: "curl", Method: request.Method, Path: request.URL}
+	for _, header := range request.Headers {
+		api.Headers = append(api.Headers, Parameter{Name: header[0]})
+	}
+	params := map[string]string{}
+	for i, header := range request.Headers {
+		params[header[0]] = request.Headers[i][1]
+	}
+	project := Project{Name: m.project.Name}
+	m.executing = true
+	body := []byte(request.Body)
+	return m, func() tea.Msg {
+		return responseMsg{result: executeRequest(project, api, params, body)}
+	}
+}
+
 func (m *tuiModel) setProject(project Project) {
 	items := append([]API(nil), project.APIs...)
 	sortKey := m.sortKey
@@ -583,6 +670,7 @@ func (m *tuiModel) setProject(project Project) {
 	m.historyIndex = -1
 	m.respSearch = ""
 	m.searchLine = 0
+	m.envName = currentEnvironmentName(project.Name)
 	m.state = stateList
 }
 
@@ -757,6 +845,8 @@ func (m tuiModel) View() string {
 		content = m.formView()
 	case stateProjects:
 		content = m.projectsView()
+	case stateEnvs:
+		content = m.envsView()
 	case stateDetail:
 		content = m.detailView()
 	default:
@@ -782,7 +872,32 @@ func (m tuiModel) statusBar() string {
 	project := tuiTitle.Render(" bench ") + " " + m.project.Name
 	baseURL := tuiMuted.Render("server: ") + m.project.BaseURL
 	count := tuiMuted.Render(fmt.Sprintf("operations: %d", len(m.items)))
-	return project + "  " + baseURL + "  " + count
+	status := project + "  " + baseURL + "  " + count
+	if m.envName != "" {
+		status += "  " + tuiActive.Render("env: "+m.envName)
+	}
+	return status
+}
+
+func (m tuiModel) envsView() string {
+	var b strings.Builder
+	b.WriteString(m.headerView("Environments") + "\n\n")
+	if len(m.envs) == 0 {
+		b.WriteString(tuiMuted.Render(" No environments found. Create one with: bench env add <name> --set key=value") + "\n")
+	} else {
+		for i, name := range m.envs {
+			line := "  " + name
+			if name == m.envName {
+				line += tuiActive.Render(" (active)")
+			}
+			if i == m.envCursor {
+				line = tuiSelected.Render("› " + strings.TrimPrefix(line, "  "))
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+	b.WriteString("\n" + tuiMuted.Render(" enter switch  esc back"))
+	return b.String()
 }
 
 func (m tuiModel) projectsView() string {
@@ -963,6 +1078,9 @@ func (m tuiModel) bottomView() string {
 		b.WriteString(tuiMuted.Render(fmt.Sprintf("history %d/%d  executed %s", m.historyIndex+1, len(m.history), entry.timestamp.Format("15:04:05"))) + "\n")
 	}
 	b.WriteString(fmt.Sprintf("Status: %s   Timing: %s\n", r.Status, r.Timing))
+	for _, warning := range r.Warnings {
+		b.WriteString(tuiPost.Render("warning: "+warning) + "\n")
+	}
 	visible := max(m.height/2-6, 3)
 	if m.responseTab == responseHeaders {
 		b.WriteString("\n" + tuiActive.Render("Headers") + "   " + tuiMuted.Render("Response body") + "\n")

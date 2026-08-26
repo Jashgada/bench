@@ -71,10 +71,57 @@ The command bar also supports project navigation:
 :projects       open the project picker
 :p              short alias for :projects
 :project pets   switch directly to the pets project
+:envs           open the environment picker
+:env dev        switch directly to the dev environment
+:curl ...       run an ad-hoc curl command without a saved operation
 :group pokemon   show only operations tagged pokemon
 :group all       clear the tag group filter
 :reload         reload the current project from local storage
 :update         fetch the current project source and reload it
+```
+
+## Environments
+
+Environments hold `{{variable}}` values used to substitute the base URL,
+parameters, headers, and request bodies at request time. They are strictly
+local to your machine.
+
+```bash
+bench env add dev --set host=http://localhost:8080 --set api_key='$MY_API_KEY'
+bench env use dev
+bench env list
+bench env rm dev
+```
+
+Values starting with `$` resolve from process environment variables at request
+time, so secrets never need to touch disk. Unset variables produce a warning
+in the response panel. Inside the TUI, `:envs` opens a picker and the status
+bar shows the active environment.
+
+## Authentication
+
+If the spec declares `components.securitySchemes` and an operation declares
+`security`, bench injects credentials automatically. Credentials come from the
+active environment, keyed by scheme name:
+
+```bash
+bench env add prod --set bearerAuth='$PROD_TOKEN'
+bench env add prod --set basicAuth_username=alice --set basicAuth_password='$PROD_PASS'
+bench env add prod --set keyAuth='$PROD_API_KEY'   # apiKey header schemes
+```
+
+Supported schemes: `http` bearer, `http` basic, and header-based `apiKey`.
+Headers you supply explicitly always win over injected credentials. OAuth
+flows are not supported.
+
+## Ad-hoc requests
+
+The `:curl` command runs any curl-style command line through bench's engine,
+so the response lands in the same scrollable, searchable, copyable panel as
+normal requests:
+
+```text
+:curl -X POST https://api.example.com/pets -H 'X-Tag: best friend' -d '{"name":"Fido"}'
 ```
 
 Run an operation by operation ID. Required path, query, and header parameters

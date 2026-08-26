@@ -50,21 +50,33 @@ func init() {
 }
 
 type ResponseResult struct {
-	Status  string
-	Timing  time.Duration
-	Headers http.Header
-	Body    []byte
-	Error   error
+	Status   string
+	Timing   time.Duration
+	Headers  http.Header
+	Body     []byte
+	Error    error
+	Warnings []string
 }
 
 func executeRequest(project Project, api API, params map[string]string, body []byte) ResponseResult {
-	path := api.Path
+	values, _, missing := activeEnvironmentValues(project.Name)
+	var warnings []string
+	for _, name := range missing {
+		warnings = append(warnings, fmt.Sprintf("environment variable %s is not set", name))
+	}
+
+	path := substituteVars(api.Path, values)
 	for _, p := range api.PathParams {
 		if val, ok := params[p.Name]; ok && val != "" {
-			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(val))
+			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(substituteVars(val, values)))
 		}
 	}
-	requestURL := strings.TrimRight(project.BaseURL, "/") + "/" + strings.TrimLeft(path, "/")
+	var requestURL string
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		requestURL = substituteVars(path, values)
+	} else {
+		requestURL = strings.TrimRight(substituteVars(project.BaseURL, values), "/") + "/" + strings.TrimLeft(path, "/")
+	}
 	parsed, err := url.Parse(requestURL)
 	if err != nil {
 		return ResponseResult{Error: fmt.Errorf("build request URL: %w", err)}
@@ -72,14 +84,14 @@ func executeRequest(project Project, api API, params map[string]string, body []b
 	query := parsed.Query()
 	for _, p := range api.QueryParams {
 		if val, ok := params[p.Name]; ok && val != "" {
-			query.Set(p.Name, val)
+			query.Set(p.Name, substituteVars(val, values))
 		}
 	}
 	parsed.RawQuery = query.Encode()
 
 	var bodyReader io.Reader
 	if len(body) > 0 {
-		bodyReader = bytes.NewReader(body)
+		bodyReader = bytes.NewReader([]byte(substituteVars(string(body), values)))
 	}
 	request, err := http.NewRequest(api.Method, parsed.String(), bodyReader)
 	if err != nil {
@@ -87,12 +99,13 @@ func executeRequest(project Project, api API, params map[string]string, body []b
 	}
 	for _, h := range api.Headers {
 		if val, ok := params[h.Name]; ok && val != "" {
-			request.Header.Set(h.Name, val)
+			request.Header.Set(h.Name, substituteVars(val, values))
 		}
 	}
 	if len(body) > 0 && request.Header.Get("Content-Type") == "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	warnings = append(warnings, applySecurity(request, project, api, values)...)
 
 	start := time.Now()
 	response, err := http.DefaultClient.Do(request)
@@ -105,10 +118,11 @@ func executeRequest(project Project, api API, params map[string]string, body []b
 		return ResponseResult{Error: fmt.Errorf("read response: %w", err)}
 	}
 	return ResponseResult{
-		Status:  response.Status,
-		Timing:  time.Since(start).Round(time.Millisecond),
-		Headers: response.Header,
-		Body:    responseData,
+		Status:   response.Status,
+		Timing:   time.Since(start).Round(time.Millisecond),
+		Headers:  response.Header,
+		Body:     responseData,
+		Warnings: warnings,
 	}
 }
 
